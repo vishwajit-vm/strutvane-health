@@ -1,0 +1,140 @@
+{
+  "name": "@strutvane/health",
+  "version": "0.1.0",
+  "description": "Application health checks for Strutvane apps: database, migrations, cache, disk, storage, app key, debug mode and env checks, with history, thresholds, rate-limited alerts, a token-protected JSON endpoint and `node strut health:check` for CI and monitoring.",
+  "keywords": [
+    "strutvane",
+    "health",
+    "health-checks",
+    "monitoring",
+    "uptime",
+    "observability"
+  ],
+  "homepage": "https://github.com/vishwajit-vm/strutvane-health#readme",
+  "bugs": {
+    "url": "https://github.com/vishwajit-vm/strutvane-health/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vishwajit-vm/strutvane-health.git"
+  },
+  "license": "MIT",
+  "author": "The Strutvane Authors",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "default": "./dist/index.mjs"
+    },
+    "./provider": {
+      "types": "./dist/provider.d.mts",
+      "default": "./dist/provider.mjs"
+    },
+    "./commands": {
+      "types": "./dist/commands.d.mts",
+      "default": "./dist/commands.mjs"
+    },
+    "./installer": {
+      "types": "./dist/installer.d.mts",
+      "default": "./dist/installer.mjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=24.3"
+  },
+  "devEngines": {
+    "packageManager": {
+      "name": "npm",
+      "version": ">=11.19.0",
+      "onFail": "error"
+    }
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "scripts": {
+    "lint": "biome check .",
+    "format": "biome check --write .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "build": "tsdown",
+    "ci": "biome check . && tsc --noEmit && vitest run --coverage && tsdown",
+    "changeset": "changeset",
+    "version-packages": "changeset version",
+    "release": "changeset publish",
+    "test:perf": "vitest run --config vitest.perf.config.ts"
+  },
+  "peerDependencies": {
+    "@strutvane/framework": "^0.2.0-next.0"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.6.7",
+    "@changesets/cli": "3.0.3",
+    "@strutvane/framework": "0.2.0-next.0",
+    "@types/node": "24.19.2",
+    "@vitest/coverage-v8": "5.1.0",
+    "tsdown": "0.23.7",
+    "typescript": "6.0.3",
+    "vitest": "5.1.0"
+  },
+  "strutvane": {
+    "manifestVersion": 1,
+    "id": "health",
+    "displayName": "Health checks",
+    "description": "Scheduled checks, history and alerts",
+    "category": "operations",
+    "tags": [
+      "monitoring",
+      "uptime"
+    ],
+    "kind": "package",
+    "docs": "https://github.com/vishwajit-vm/strutvane-health#readme",
+    "framework": "^0.2.0-next.0",
+    "compat": "^0.2.0-next.0",
+    "commands": "./dist/commands.mjs",
+    "installer": "./dist/installer.mjs",
+    "installs": {
+      "config": [
+        "config/health.ts"
+      ],
+      "env": [
+        {
+          "key": "HEALTH_CHECK_TOKEN",
+          "description": "Shared secret for the health JSON endpoint (sent as Authorization: Bearer)",
+          "secret": true
+        }
+      ],
+      "migrations": [
+        "create_health_check_results_table"
+      ],
+      "routes": [
+        {
+          "method": "GET",
+          "path": "/health.json"
+        }
+      ],
+      "providers": [
+        "@strutvane/health/provider"
+      ],
+      "commands": [
+        {
+          "name": "health:check",
+          "description": "Run every health check now"
+        },
+        {
+          "name": "health:list",
+          "description": "List the health checks"
+        }
+      ]
+    }
+  }
+}
