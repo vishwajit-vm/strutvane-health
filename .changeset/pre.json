@@ -1,8 +1,4 @@
 {
   "mode": "pre",
-  "tag": "next",
-  "initialVersions": {
-    "@strutvane/health": "0.1.0"
-  },
-  "changesets": []
+  "tag": "next"
 }

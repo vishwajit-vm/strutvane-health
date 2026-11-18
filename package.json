@@ -1,6 +1,6 @@
 {
   "name": "@strutvane/health",
-  "version": "0.1.0",
+  "version": "0.2.0-next.0",
   "description": "Application health checks for Strutvane apps: database, migrations, cache, disk, storage, app key, debug mode and env checks, with history, thresholds, rate-limited alerts, a token-protected JSON endpoint and `node strut health:check` for CI and monitoring.",
   "keywords": [
     "strutvane",
