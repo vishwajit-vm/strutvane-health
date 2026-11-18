@@ -146,7 +146,8 @@ function removeEntry(source: string, edit: ListEdit, list: RegExp): string {
   const name = edit.name
   const nextBody = body
     .replace(new RegExp(`\\n[ \\t]*${name}[ \\t]*,?[ \\t]*(?=\\n)`), '')
-    .replace(new RegExp(`,\\s*${name}\\b\\s*(?=,|$)`), '')
+    // `, Name` in a one-line list; the blanks after it belong to the list, so they stay.
+    .replace(new RegExp(`,[ \\t]*${name}\\b(?=\\s*(?:,|$))`), '')
     .replace(new RegExp(`^(\\s*)${name}\\b\\s*,?\\s*`), '$1')
   out = out.slice(0, match.index) + open + nextBody + close + out.slice(match.index + whole.length)
   return out

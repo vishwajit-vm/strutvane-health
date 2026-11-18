@@ -158,6 +158,8 @@ export function healthApp(
     readonly health?: Readonly<Record<string, unknown>>
     readonly env?: Readonly<Record<string, string>>
     readonly config?: ConfigFiles
+    /** Bind HealthEnvToken (default true); false makes the provider read .env + the process. */
+    readonly bindEnv?: boolean
   } = {},
 ): HealthApp {
   const basePath = tempDir('health-app-')
@@ -193,6 +195,6 @@ export function healthApp(
   app.container.value(LoggerToken, logger)
   app.container.value(ClockToken, clock)
   app.container.value(DatabaseConnectionToken, connection)
-  app.container.value(HealthEnvToken, env)
+  if (options.bindEnv !== false) app.container.value(HealthEnvToken, env)
   return { app, logger, clock, connection, basePath }
 }
