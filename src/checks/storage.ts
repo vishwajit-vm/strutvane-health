@@ -6,7 +6,7 @@
  *   files live there. A read-only mount or wrong ownership after a deploy breaks sign-in and
  *   silences logs, so the check writes a small probe file, reads it back and removes it.
  * - **A storage disk** (optional, `disk: 'local'`): uploads go through the framework's
- *   `StorageManager`. The check puts, reads and deletes a probe object under `.health/`.
+ *   `StorageManager`. The check puts, reads and deletes a probe object under `health-checks/` (storage keys refuse dot-segments).
  *
  * Probe names are random, created with `wx` (never following or overwriting an existing file)
  * and always removed, also when the check fails half-way.
@@ -105,7 +105,7 @@ async function probeStorageDisk(disk: () => StorageDisk): Promise<string | undef
   } catch (error) {
     return errorText(error)
   }
-  const key = `.health/probe-${randomBytes(8).toString('hex')}.txt`
+  const key = `health-checks/probe-${randomBytes(8).toString('hex')}.txt`
   const content = randomBytes(8).toString('hex')
   try {
     await target.put(key, content)
