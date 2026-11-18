@@ -70,7 +70,11 @@ async function bootWith(statuses: Record<string, 'ok' | 'warning' | 'failed'>) {
       defineCheck({
         name,
         run: () =>
-          status === 'ok' ? Result.ok('fine') : status === 'warning' ? Result.warning('meh', 'look') : Result.failed('down', 'fix it'),
+          status === 'ok'
+            ? Result.ok('fine')
+            : status === 'warning'
+              ? Result.warning('meh', 'look')
+              : Result.failed('down', 'fix it'),
       }),
     )
   return made
@@ -97,7 +101,9 @@ describe('health:check', () => {
     expect((await cli(first.app, first.basePath, ['health:check'])).code).toBe(0)
     // Every CLI run loads (and shuts down) its own app, as node strut does.
     const second = await bootWith({ alpha: 'warning' })
-    expect((await cli(second.app, second.basePath, ['health:check', '--fail-on', 'warning'])).code).toBe(1)
+    expect(
+      (await cli(second.app, second.basePath, ['health:check', '--fail-on', 'warning'])).code,
+    ).toBe(1)
   })
 
   it('--only runs the named checks; an unknown name is a usage error (exit 2)', async () => {
@@ -111,7 +117,12 @@ describe('health:check', () => {
 
   it('--json prints the report in the CLI envelope', async () => {
     const { app, basePath } = await bootWith({ alpha: 'failed' })
-    const ran = await cli(app, basePath, ['health:check', '--json', '--skip-history', '--skip-notifications'])
+    const ran = await cli(app, basePath, [
+      'health:check',
+      '--json',
+      '--skip-history',
+      '--skip-notifications',
+    ])
     expect(ran.code).toBe(1)
     const envelope = JSON.parse(ran.stdout) as {
       exitCode: number
@@ -133,7 +144,11 @@ describe('health:check', () => {
   it('exits 1 when the app does not boot, with the fix', async () => {
     const made = fixture()
     const ran = await cli(made.app, made.basePath, ['health:check'], async () => {
-      throw new BootError('missing_bootstrap', 'There is no bootstrap/app.ts.', 'Run it from the app root.')
+      throw new BootError(
+        'missing_bootstrap',
+        'There is no bootstrap/app.ts.',
+        'Run it from the app root.',
+      )
     })
     expect(ran.code).toBe(1)
     expect(ran.stdout + ran.stderr).toContain('The app did not boot: There is no bootstrap/app.ts.')
@@ -145,7 +160,10 @@ describe('health:check', () => {
       basePath: made.basePath,
       env: { APP_ENV: 'testing', APP_KEY: `base64:${Buffer.alloc(32, 7).toString('base64')}` },
     }).create()
-    bare.container.value((await import('@strutvane/framework/core')).LoggerToken, new MemoryLogger())
+    bare.container.value(
+      (await import('@strutvane/framework/core')).LoggerToken,
+      new MemoryLogger(),
+    )
     const ran = await cli(bare, made.basePath, ['health:check'])
     expect(ran.code).toBe(1)
     expect(ran.stdout + ran.stderr).toContain('Add HealthServiceProvider to bootstrap/providers.ts')
@@ -161,7 +179,11 @@ describe('health:check', () => {
 describe('health:list', () => {
   it('lists the registered checks', async () => {
     const { app, basePath } = await bootWith({ alpha: 'ok' })
-    app.make(HealthToken).register(defineCheck({ name: 'slowpoke', label: 'Slow', timeoutMs: 900, run: () => Result.ok() }))
+    app
+      .make(HealthToken)
+      .register(
+        defineCheck({ name: 'slowpoke', label: 'Slow', timeoutMs: 900, run: () => Result.ok() }),
+      )
     const ran = await cli(app, basePath, ['health:list', '--json'])
     expect(ran.code).toBe(0)
     const envelope = JSON.parse(ran.stdout) as { data: { checks: unknown[] } }
@@ -170,7 +192,9 @@ describe('health:list', () => {
       { name: 'slowpoke', label: 'Slow', timeoutMs: 900 },
     ])
     const again = await bootWith({})
-    again.app.make(HealthToken).register(defineCheck({ name: 'slowpoke', timeoutMs: 900, run: () => Result.ok() }))
+    again.app
+      .make(HealthToken)
+      .register(defineCheck({ name: 'slowpoke', timeoutMs: 900, run: () => Result.ok() }))
     const human = await cli(again.app, again.basePath, ['health:list'])
     expect(human.stdout).toContain('900 ms')
   })

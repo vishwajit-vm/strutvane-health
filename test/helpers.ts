@@ -68,7 +68,7 @@ export class MemoryLogger implements Logger {
 /** A clock that only moves when told to. */
 export class StepClock implements Clock {
   #now: number
-  constructor(start = Date.UTC(2026, 10, 18, 10, 0, 0)) {
+  constructor(start: number = Date.UTC(2026, 10, 18, 10, 0, 0)) {
     this.#now = start
   }
   now(): number {
