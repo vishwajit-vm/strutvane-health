@@ -1,6 +1,6 @@
 # NEXT: `@strutvane/health` (branch `v2/health`)
 
-Last updated: 2026-11-18. Built against `@strutvane/framework` 0.2.0-next.1, which is on npm.
+Last updated: 2026-11-19. Built against `@strutvane/framework` 0.2.0-next.1, which is on npm.
 
 ## Done
 
@@ -35,7 +35,7 @@ Last updated: 2026-11-18. Built against `@strutvane/framework` 0.2.0-next.1, whi
   - writes the config, the migration and the env token;
   - registers the provider in `bootstrap/providers.ts` and adds `health` to `config/index.ts`;
   - uninstall is reversible.
-- **Tests:** 16 files, 150+ tests on real engines, coverage ≈ 97/93/96/98:
+- **Tests:** 14 files, 149 tests on real engines, coverage 98.34/94.43/97.61/99.32 (statements/branches/functions/lines; agent-reported):
   - SQLite through the framework driver;
   - the real migration sandbox and runner;
   - a real booted `Application`;
@@ -52,10 +52,16 @@ Last updated: 2026-11-18. Built against `@strutvane/framework` 0.2.0-next.1, whi
 5. **strutvane-tooling `manifest.json` has no `health` target.** Add `{ "name": "health", "profile": "library" }` so `sync.mjs --check` covers this repo.
 6. **Mail alerts wait for the framework mailer.** Until then, apps bind `HealthMailerToken`.
 
+## Gate (agent-reported, 2026-11-19, Windows, Node 24, against framework 0.2.0-next.1 from npm)
+
+- Plain `npm ci` passes (allowScripts pins esbuild 0.18.20 / 0.25.12 / 0.28.2 and denies fsevents 2.3.3).
+- `npm run ci` 3× green: 14 files, 149 tests each run, coverage 98.34 / 94.43 / 97.61 / 99.32, build OK.
+- `check-code-rules`, `check-deps` and `check-package` (26 files) pass; publint --strict "All good"; attw --profile esm-only clean; `npm audit --omit=dev` 0 vulnerabilities.
+
 ## Next
 
-1. Run the gate 3× (`npm ci && npm run ci`) and record the results in `RELEASE-READINESS.md`.
-2. Have the coordinator re-run the gate, then do the security review (`security-reviewer` agent) and the `strutvane-ecosystem-guardian` review.
+1. Have the coordinator re-run the gate 3× (`npm ci && npm run ci`).
+2. Do the security review (`security-reviewer` agent) and the `strutvane-ecosystem-guardian` review.
 3. Merge into `main` and release `0.2.0-next.0` with the next add-on wave. `RELEASE_ENABLED` is not set on this repo yet.
 
 ## How to verify
