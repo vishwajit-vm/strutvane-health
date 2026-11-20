@@ -5,6 +5,7 @@
  */
 import { randomBytes } from 'node:crypto'
 import { DatabaseConnectionToken } from '@strutvane/framework'
+import fc from 'fast-check'
 import { describe, expect, it } from 'vitest'
 import { defineCheck } from '../../src/check.ts'
 import { HealthToken } from '../../src/health.ts'
@@ -98,23 +99,85 @@ describe('GET /health.json', () => {
     }
   })
 
-  it('locks out an IP after too many failed attempts, even with the right token, until the window passes', async () => {
+  it('answers 429 to further failures from a client after max_failed_attempts, and still serves the right token', async () => {
     const { app } = await booted({ endpoint: { token: TOKEN, max_failed_attempts: 3 } })
+    const wrong = { authorization: 'Bearer nope' }
     for (let i = 0; i < 3; i += 1)
-      expect(
-        (
-          await app.handle(get('/health.json', { authorization: 'Bearer nope' }), {
-            ip: '203.0.113.9',
-          })
-        ).status,
-      ).toBe(401)
-    const locked = await app.handle(get('/health.json', bearer), { ip: '203.0.113.9' })
+      expect((await app.handle(get('/health.json', wrong), { ip: '203.0.113.9' })).status).toBe(401)
+    const locked = await app.handle(get('/health.json', wrong), { ip: '203.0.113.9' })
     expect(locked.status).toBe(429)
     expect(locked.headers.get('retry-after')).toBe('60')
-    // Another client is unaffected.
-    expect((await app.handle(get('/health.json', bearer), { ip: '198.51.100.7' })).status).not.toBe(
-      429,
+    // The right token from the same client is checked first and always served.
+    expect([200, 503]).toContain(
+      (await app.handle(get('/health.json', bearer), { ip: '203.0.113.9' })).status,
     )
+    // Another client's failures are counted separately.
+    expect((await app.handle(get('/health.json', wrong), { ip: '198.51.100.7' })).status).toBe(401)
+  })
+
+  it('a valid token is never refused, whatever failures its client bucket has seen (property)', async () => {
+    const { app } = await booted({ endpoint: { token: TOKEN, max_failed_attempts: 2 } })
+    const client = fc.oneof(
+      fc.constant('unknown'),
+      fc.ipV4(),
+      fc.ipV6(),
+      fc.ipV4().map((v4) => `::ffff:${v4}`),
+    )
+    const wrongHeaders = fc.oneof(
+      fc.constant<Record<string, string>>({}),
+      fc
+        .stringMatching(/^[A-Za-z0-9._~+/=-]{1,60}$/)
+        .filter((token) => token !== TOKEN)
+        .map((token) => ({ authorization: `Bearer ${token}` })),
+      fc.constant({ 'x-health-token': `${TOKEN}x` }),
+    )
+    await fc.assert(
+      fc.asyncProperty(client, fc.array(wrongHeaders, { maxLength: 12 }), async (ip, attempts) => {
+        for (const headers of attempts) {
+          const refused = await app.handle(get('/health.json', headers), { ip })
+          expect([401, 429]).toContain(refused.status)
+        }
+        const served = await app.handle(get('/health.json', bearer), { ip })
+        expect([200, 503]).toContain(served.status)
+        const viaHeader = await app.handle(get('/health.json', { 'x-health-token': TOKEN }), { ip })
+        expect([200, 503]).toContain(viaHeader.status)
+      }),
+      { numRuns: 40 },
+    )
+  })
+
+  it('an allowed policy is never refused, whatever failures its client bucket has seen', async () => {
+    const { app } = await booted()
+    app
+      .make(HealthToken)
+      .authorizeUsing((ctx) => ctx.request.headers.get('x-role') === 'admin')
+    for (const ip of [undefined, 'unknown', '203.0.113.9', '2001:db8::1']) {
+      const info = ip === undefined ? {} : { ip }
+      for (let i = 0; i < 25; i += 1)
+        expect([401, 429]).toContain(
+          (await app.handle(get('/health.json', { 'x-role': 'guest' }), info)).status,
+        )
+      expect([200, 503]).toContain(
+        (await app.handle(get('/health.json', { 'x-role': 'admin' }), info)).status,
+      )
+    }
+  })
+
+  it('counts failures per client bucket: one IPv6 /64, and IPv4-mapped IPv6 as its IPv4 client', async () => {
+    const { app } = await booted({ endpoint: { token: TOKEN, max_failed_attempts: 2 } })
+    const wrong = { authorization: 'Bearer nope' }
+    const status = async (ip: string) => (await app.handle(get('/health.json', wrong), { ip })).status
+    // Two addresses in one /64 share a bucket; a third in that /64 is over the limit.
+    expect(await status('2001:db8:1:2::1')).toBe(401)
+    expect(await status('2001:db8:1:2:ffff:ffff:ffff:ffff')).toBe(401)
+    expect(await status('2001:db8:1:2:abcd::9')).toBe(429)
+    // A neighbouring /64 is a different client.
+    expect(await status('2001:db8:1:3::1')).toBe(401)
+    // IPv4 and its IPv4-mapped form are one client.
+    expect(await status('192.0.2.44')).toBe(401)
+    expect(await status('::ffff:192.0.2.44')).toBe(401)
+    expect(await status('[::ffff:c000:22c]')).toBe(429)
+    expect(await status('192.0.2.45')).toBe(401)
   })
 
   it('answers 503 when a check fails, and never leaks secrets even with messages exposed', async () => {

@@ -14,9 +14,14 @@
  *   admins. A policy that throws denies.
  * - **Neither configured:** the endpoint answers `404`, exactly like a route that does not exist.
  *
- * Failed attempts are counted per client IP in the cache; after `max_failed_attempts` in a minute
- * the endpoint answers `429` (also to correct tokens from that IP, until the minute passes), so
- * guessing the token is pointless even before the `api` group's own rate limit.
+ * The credential is checked first, every time. A valid token, or a policy that allows the request,
+ * always gets the report: the failed-attempt counter never stands in its way. Only failures are
+ * counted, per client bucket in the cache (the IPv4 address, or the IPv6 /64, with IPv4-mapped
+ * IPv6 counted as its IPv4 client: the same buckets as the framework's `throttle`). After
+ * `max_failed_attempts` failures in a minute, further failures from that bucket answer `429`
+ * instead of `401` until the minute passes, so guessing the token is pointless even before the
+ * `api` group's own rate limit. Behind a proxy that the app doesn't trust, every client may share
+ * one bucket (or `'unknown'`); that is why a correct credential must never depend on it.
  *
  * What the response contains: overall status, and per check its name, label, status, summary and
  * duration. Messages only with `endpoint.expose_messages`; meta never. Everything was sanitized by
@@ -34,6 +39,7 @@ import type { Logger } from '@strutvane/framework/contracts'
 import { NotFoundError, RateLimitedError, UnauthenticatedError } from '@strutvane/framework/core'
 import type { Health } from '../health.ts'
 import { publicReport } from '../report.ts'
+import { ipBucket } from './ip-bucket.ts'
 
 /**
  * What the endpoint handler needs.
@@ -70,20 +76,9 @@ export function healthEndpoint(options: EndpointOptions): (ctx: HttpContext) => 
     const health = options.health()
     const authorizer = health.authorizer
     if (expected === undefined && authorizer === undefined) throw new NotFoundError()
-    const cache = options.cache()
-    const counterKey = `${FAILED_ATTEMPTS_PREFIX}${ctx.ip}`
-    if (cache !== undefined) {
-      const failures = await cache.get(counterKey).catch(() => undefined)
-      if (typeof failures === 'number' && failures >= options.maxFailedAttempts)
-        throw new RateLimitedError(WINDOW_SECONDS)
-    }
-    if (!(await allowed(ctx, expected, authorizer, options.logger))) {
-      if (cache !== undefined)
-        await cache.increment(counterKey, 1, WINDOW_SECONDS).catch(() => undefined)
-      throw new UnauthenticatedError({
-        headers: { 'www-authenticate': 'Bearer realm="health"' },
-      })
-    }
+    // The credential decides first; the counter only ever turns a refusal into a 429.
+    if (!(await allowed(ctx, expected, authorizer, options.logger)))
+      await refuse(options.cache(), `${FAILED_ATTEMPTS_PREFIX}${ipBucket(ctx.ip)}`, options)
     const report = await health.current(options.cacheSeconds * 1000)
     return ctx.json(
       publicReport(report, { messages: options.exposeMessages }),
@@ -91,6 +86,26 @@ export function healthEndpoint(options: EndpointOptions): (ctx: HttpContext) => 
       { 'cache-control': 'no-store', 'x-robots-tag': 'noindex' },
     )
   }
+}
+
+/**
+ * Count a refused request and throw: `429` once the bucket has used up its failures for the
+ * window, `401` before that. Never returns. A cache that fails is ignored (the request is still
+ * refused; only the counting is lost).
+ */
+async function refuse(
+  cache: CacheStore | undefined,
+  counterKey: string,
+  options: EndpointOptions,
+): Promise<never> {
+  if (cache !== undefined) {
+    const failures = await cache.increment(counterKey, 1, WINDOW_SECONDS).catch(() => undefined)
+    if (typeof failures === 'number' && failures > options.maxFailedAttempts)
+      throw new RateLimitedError(WINDOW_SECONDS)
+  }
+  throw new UnauthenticatedError({
+    headers: { 'www-authenticate': 'Bearer realm="health"' },
+  })
 }
 
 /**
