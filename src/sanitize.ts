@@ -10,7 +10,7 @@
  * 1. **Known secret values** (from the app's environment: every variable whose *name* looks
  *    sensitive, such as `DB_PASSWORD`, `APP_KEY`, `HEALTH_CHECK_TOKEN`, plus any value that is a
  *    URL with credentials) are replaced wherever they appear, in any text.
- * 2. **Credentials in URLs** (`postgres://user:pass@host`) are masked even when the value is not
+ * 2. **Credentials in URLs** (`postgres://user:pass@host`) are masked even when the value is not // trufflehog:ignore
  *    in the environment.
  * 3. **Bearer tokens and `key=value` secrets** in free text are masked.
  * 4. **Meta keys** whose name looks sensitive (`password`, `apiKey`, `authorization`…) are dropped,
@@ -74,7 +74,7 @@ export function secretValues(env: Readonly<Record<string, string | undefined>>):
  * Mask secrets in a piece of text and bound its length.
  *
  * @example
- * sanitizeText('connect postgres://app:s3cret@db/app failed', [], 200)
+ * sanitizeText('connect postgres://app:s3cret@db/app failed', [], 200) // trufflehog:ignore
  * // 'connect postgres://[REDACTED]@db/app failed'
  */
 export function sanitizeText(text: string, secrets: readonly string[], maxLength: number): string {
