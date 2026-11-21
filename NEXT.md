@@ -4,7 +4,8 @@
 
 - **Endpoint:** the credential is checked first; a valid token or an allowed policy is always served. Only failures are counted, per client bucket (`src/http/ip-bucket.ts`, the same buckets as the framework's `throttle`, which the published framework does not export; `test/http/ip-bucket.test.ts` pins it to the framework's examples). Property test: any number of failures from one bucket, `unknown` included, never blocks a valid credential.
 - **Output masking (`src/sanitize.ts`):** encoded forms of known secrets (percent, JSON, base64, base64url); URL credentials to the last `@`; more key names; whole quoted values; header lines; Redis `AUTH`; Digest `response`. Values are measured by hand so the work stays linear. Property test `test/sanitize-carriers.test.ts`: unknown secrets from the full printable alphabet in every carrier leave no 6-character piece.
-- Changeset (patch) added. Gate results: see the end of this file.
+- Changeset (patch) added.
+- **Gate (2026-11-21, Windows, Node 24; agent-reported until the coordinator re-runs):** plain `npm ci` OK; `npm run ci` 3× in a row green: 16 files, 190 tests, coverage 98.54 / 94.16 / 98.24 / 99.4, build OK. (An earlier batch had 2 green runs and 1 run where every slow test hit its 30 s timeout while the machine was saturated by other jobs; it was re-run.)
 - **Next:** the coordinator re-runs the gate 3×, then merges into `main` with the release.
 
 Last updated: 2026-11-19. Built against `@strutvane/framework` 0.2.0-next.1, which is on npm.
