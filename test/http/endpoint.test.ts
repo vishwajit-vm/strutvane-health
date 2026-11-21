@@ -116,7 +116,8 @@ describe('GET /health.json', () => {
   })
 
   it('a valid token is never refused, whatever failures its client bucket has seen (property)', async () => {
-    const { app } = await booted({ endpoint: { token: TOKEN, max_failed_attempts: 2 } })
+    // A fresh app per run: the api group's own throttle (a separate, credential-blind limit of the
+    // framework) must not be what this property measures.
     const client = fc.oneof(
       fc.constant('unknown'),
       fc.ipV4(),
@@ -132,7 +133,8 @@ describe('GET /health.json', () => {
       fc.constant({ 'x-health-token': `${TOKEN}x` }),
     )
     await fc.assert(
-      fc.asyncProperty(client, fc.array(wrongHeaders, { maxLength: 12 }), async (ip, attempts) => {
+      fc.asyncProperty(client, fc.array(wrongHeaders, { maxLength: 30 }), async (ip, attempts) => {
+        const { app } = await booted({ endpoint: { token: TOKEN, max_failed_attempts: 2 } })
         for (const headers of attempts) {
           const refused = await app.handle(get('/health.json', headers), { ip })
           expect([401, 429]).toContain(refused.status)
@@ -142,15 +144,13 @@ describe('GET /health.json', () => {
         const viaHeader = await app.handle(get('/health.json', { 'x-health-token': TOKEN }), { ip })
         expect([200, 503]).toContain(viaHeader.status)
       }),
-      { numRuns: 40 },
+      { numRuns: 25 },
     )
   })
 
   it('an allowed policy is never refused, whatever failures its client bucket has seen', async () => {
     const { app } = await booted()
-    app
-      .make(HealthToken)
-      .authorizeUsing((ctx) => ctx.request.headers.get('x-role') === 'admin')
+    app.make(HealthToken).authorizeUsing((ctx) => ctx.request.headers.get('x-role') === 'admin')
     for (const ip of [undefined, 'unknown', '203.0.113.9', '2001:db8::1']) {
       const info = ip === undefined ? {} : { ip }
       for (let i = 0; i < 25; i += 1)
@@ -166,7 +166,8 @@ describe('GET /health.json', () => {
   it('counts failures per client bucket: one IPv6 /64, and IPv4-mapped IPv6 as its IPv4 client', async () => {
     const { app } = await booted({ endpoint: { token: TOKEN, max_failed_attempts: 2 } })
     const wrong = { authorization: 'Bearer nope' }
-    const status = async (ip: string) => (await app.handle(get('/health.json', wrong), { ip })).status
+    const status = async (ip: string) =>
+      (await app.handle(get('/health.json', wrong), { ip })).status
     // Two addresses in one /64 share a bucket; a third in that /64 is over the limit.
     expect(await status('2001:db8:1:2::1')).toBe(401)
     expect(await status('2001:db8:1:2:ffff:ffff:ffff:ffff')).toBe(401)

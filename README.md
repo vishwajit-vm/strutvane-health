@@ -73,7 +73,7 @@ curl -H "Authorization: Bearer $HEALTH_CHECK_TOKEN" https://app.example.com/heal
   ```
 
 - With neither a token nor a policy, the endpoint answers `404`.
-- Wrong tokens are counted per client IP. After `max_failed_attempts` (default 10) in a minute, the endpoint answers `429`. The route also sits in the `api` middleware group and its rate limit.
+- The token (or your policy) is checked first, and a valid one is always served. Only wrong tokens are counted, per client (an IPv4 address, or an IPv6 /64). After `max_failed_attempts` (default 10) in a minute, further wrong tokens from that client get `429` instead of `401`. The route also sits in the `api` middleware group and its rate limit.
 - The response carries `Cache-Control: no-store`. It never includes meta, and includes messages only with `endpoint.expose_messages`.
 - Reports are reused for `cache_seconds` (default 10), and concurrent requests share one run, so the endpoint can't be used to hammer your database.
 

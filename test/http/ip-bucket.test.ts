@@ -15,7 +15,8 @@ function expanded(ip: string): string[] {
   const [left = '', right] = host.split('::')
   const l = left === '' ? [] : left.split(':')
   const r = right === undefined || right === '' ? [] : right.split(':')
-  const groups = right === undefined ? l : [...l, ...Array<string>(8 - l.length - r.length).fill('0'), ...r]
+  const groups =
+    right === undefined ? l : [...l, ...Array<string>(8 - l.length - r.length).fill('0'), ...r]
   return groups.map((group) => Number.parseInt(group, 16).toString(16))
 }
 
@@ -73,7 +74,9 @@ describe('ipBucket', () => {
         fc.array(group, { minLength: 4, maxLength: 4 }),
         (network, one, two) => {
           fc.pre(network.slice(0, 2).join(':') !== '0:0')
-          expect(ipBucket([...network, ...one].join(':'))).toBe(ipBucket([...network, ...two].join(':')))
+          expect(ipBucket([...network, ...one].join(':'))).toBe(
+            ipBucket([...network, ...two].join(':')),
+          )
         },
       ),
     )

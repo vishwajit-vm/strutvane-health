@@ -32,7 +32,7 @@ export interface HealthSettings {
     readonly exposeMessages: boolean
     /** Reuse a report younger than this for endpoint requests. */
     readonly cacheSeconds: number
-    /** Failed token attempts allowed per client IP per minute before 429. */
+    /** Failed attempts per client (IPv4 address or IPv6 /64) per minute before failures get 429. */
     readonly maxFailedAttempts: number
   }
   readonly history: { readonly enabled: boolean; readonly keepDays: number }
