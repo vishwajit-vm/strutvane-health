@@ -8,7 +8,12 @@
 import { REDACTED } from '@strutvane/framework/core'
 import fc from 'fast-check'
 import { describe, expect, it } from 'vitest'
-import { MAX_MESSAGE_LENGTH, MIN_SECRET_LENGTH, sanitizeText, secretForms } from '../src/sanitize.ts'
+import {
+  MAX_MESSAGE_LENGTH,
+  MIN_SECRET_LENGTH,
+  sanitizeText,
+  secretForms,
+} from '../src/sanitize.ts'
 
 /** Every run of 6 characters in `value` (the shortest piece that could identify a secret). */
 function sixes(value: string): string[] {
@@ -26,11 +31,9 @@ const printable = fc.oneof(
 const anySecret = fc.string({ unit: printable, minLength: 8, maxLength: 40 })
 
 /** A value in double quotes, escaped as JSON and most loggers write it. */
-const dq = (value: string): string =>
-  `"${value.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"`
+const dq = (value: string): string => `"${value.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"`
 /** A value in single quotes with backslash escapes. */
-const sq = (value: string): string =>
-  `'${value.replaceAll('\\', '\\\\').replaceAll("'", "\\'")}'`
+const sq = (value: string): string => `'${value.replaceAll('\\', '\\\\').replaceAll("'", "\\'")}'`
 /** logfmt: bare when it is one safe word, quoted otherwise. */
 const logfmt = (value: string): string => (/[\s"'\\=]/.test(value) ? dq(value) : value)
 const b64 = (value: string): string => Buffer.from(value, 'utf8').toString('base64')
@@ -196,7 +199,7 @@ describe('sanitizeText: the forms a known secret takes', () => {
     ['form encoding', (s) => encodeURIComponent(s).replaceAll('%20', '+')],
     [
       'lowercase percent-encoding',
-      (s) => encodeURIComponent(s).replace(/%[0-9A-F]{2}/g, (escape) => escape.toLowerCase()),
+      (s) => encodeURIComponent(s).replace(/%[0-9A-F]{2}/g, (hex) => hex.toLowerCase()),
     ],
     ['JSON escaping', (s) => JSON.stringify(s).slice(1, -1)],
     ['JSON escaping with \\/', (s) => JSON.stringify(s).slice(1, -1).replaceAll('/', '\\/')],
@@ -243,9 +246,7 @@ describe('sanitizeText: shapes and edges', () => {
     expect(sanitizeText('{"session":"a\\"b c","user":"bob"}', [], 200)).toBe(
       `{"session":"${REDACTED}","user":"bob"}`,
     )
-    expect(sanitizeText("X-Amz-Signature='abc def'", [], 200)).toBe(
-      `X-Amz-Signature='${REDACTED}'`,
-    )
+    expect(sanitizeText("X-Amz-Signature='abc def'", [], 200)).toBe(`X-Amz-Signature='${REDACTED}'`)
     expect(sanitizeText('Authorization: Bearer a b c', [], 200)).toBe(
       `Authorization: Bearer ${REDACTED}`,
     )
@@ -264,6 +265,12 @@ describe('sanitizeText: shapes and edges', () => {
     )
   })
 
+  it('finds a secret key inside the value of another key', () => {
+    expect(sanitizeText('user=password=abcdef rest', [], 200)).toBe(
+      `user=password=${REDACTED} rest`,
+    )
+  })
+
   it('leaves the word "auth" in a sentence and an ordinary response code alone', () => {
     expect(sanitizeText('auth failed for user bob', [], 200)).toBe('auth failed for user bob')
     expect(sanitizeText('response=200 in 3ms', [], 200)).toBe('response=200 in 3ms')
@@ -271,7 +278,19 @@ describe('sanitizeText: shapes and edges', () => {
 
   it('stays fast on long, repetitive input', () => {
     const started = performance.now()
-    for (const unit of ['a-sig-', 'token="', 'x://', 'AUTH ', '@a', 'Bearer ', '\\"', 'a@'])
+    for (const unit of [
+      'a-sig-',
+      'token="',
+      'token="a"b',
+      'response="a"b',
+      "pass='\\'x",
+      'x://',
+      'AUTH ',
+      '@a',
+      'Bearer ',
+      '\\"',
+      'a@',
+    ])
       sanitizeText(unit.repeat(20_000), ['secret-value'], MAX_MESSAGE_LENGTH)
     expect(performance.now() - started).toBeLessThan(5_000)
   })

@@ -34,8 +34,9 @@
  * Every rule reads the original text and marks the span it would hide; the spans are merged and
  * replaced once. So one rule never hides the context another rule needs (a password containing
  * `token="` is still inside its URL's credentials), and adding a rule can only ever hide more.
- * All patterns have bounded repetition around their keywords, so the work stays linear in the
- * length of the text.
+ * All patterns have bounded repetition around their keywords, and values are measured by hand
+ * with constant-time look-ups (see `valueSpan`), so the work stays linear in the length of the
+ * text, even on long, repetitive input.
  *
  * @module
  */
@@ -57,19 +58,23 @@ const isSensitiveKey = sensitiveKeyMatcher()
 const SECRET_ENV_NAME =
   /(?:^|_)(?:KEY|KEYS|SECRET|TOKEN|PASSWORD|PASS|PASSPHRASE|PWD|CREDENTIALS?|PRIVATE|DSN|AUTH|COOKIE|SALT|SIGNATURE|WEBHOOK)(?:_|$)/i
 
-/** A double- or single-quoted value with backslash escapes; an unterminated one runs to the line end. */
-const QUOTED = String.raw`"(?:[^"\\\n]|\\.)*"?|'(?:[^'\\\n]|\\.)*'?`
 /** The scheme word of an `Authorization` value, kept in the output. */
 const SCHEME_WORD = '(?:bearer|basic|digest|token|negotiate|ntlm|aws4-hmac-sha256)'
 /**
- * `password=…`, `api_key: …`, `"token":"…"`, `X-Amz-Signature=…`, `authorization: Bearer …`:
- * group 1 is the value, after any scheme word. The `{0,40}` bounds around the keyword keep
- * matching linear on long input.
+ * The start of a `key=value` or `key: value` pair (`password=…`, `"token":"…"`,
+ * `X-Amz-Signature=…`, `authorization: Bearer …`), up to where the value begins (after any scheme
+ * word). Group 1 is the key name, tested against {@link SECRET_KEY_NAME} separately. The value is
+ * found by {@link valueSpan}, and the match stops before it, so a value that itself holds another
+ * `key=` is searched again. One bounded run of key characters per position keeps matching linear
+ * on long input.
  */
-const KEY_VALUE = new RegExp(
-  String.raw`\b[A-Za-z0-9_-]{0,40}(?:pass|pwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|auth|sig|credential|cookie|session)[A-Za-z0-9_-]{0,40}["']?[ \t]{0,8}[:=][ \t]{0,8}(?:${SCHEME_WORD}[ \t]+)?(${QUOTED}|\S+)`,
+const KEY_START = new RegExp(
+  String.raw`\b([A-Za-z0-9_-]{1,80})["']?[ \t]{0,8}[:=][ \t]{0,8}(?:${SCHEME_WORD}[ \t]+)?`,
   'gi',
 )
+/** Key names that hold credentials. */
+const SECRET_KEY_NAME =
+  /pass|pwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|auth|sig|credential|cookie|session/i
 /** An `Authorization`/`Cookie` header line: group 1 or 2 is its value after any scheme word. */
 const CREDENTIAL_HEADER = new RegExp(
   String.raw`\b(?:proxy-)?authorization[ \t]{0,8}:[ \t]{0,8}(?:${SCHEME_WORD}[ \t]+)?([^\n]+)|\b(?:set-)?cookie[ \t]{0,8}:[ \t]{0,8}([^\n]+)`,
@@ -77,8 +82,8 @@ const CREDENTIAL_HEADER = new RegExp(
 )
 /** `Bearer abc…`, `Basic abc…`, `Token abc…` anywhere: group 1 is the token. */
 const AUTH_SCHEME = /\b(?:Bearer|Basic|Token)[ \t]+([A-Za-z0-9._~+/=-]{6,})/gi
-/** A Digest `response="…"`: group 1 is the quoted value. */
-const DIGEST_RESPONSE = new RegExp(String.raw`\bresponse[ \t]{0,8}=[ \t]{0,8}(${QUOTED})`, 'gi')
+/** A Digest `response="…"`, up to its opening quote (the value is found by {@link valueSpan}). */
+const DIGEST_RESPONSE = /\bresponse[ \t]{0,8}=[ \t]{0,8}(?=["'])/gi
 /**
  * A Redis `AUTH` command (`AUTH pw`, `AUTH user pw`, `["AUTH","user","pw"]`): group 1 is its
  * arguments, to the line end. Upper case only, as Redis and its clients write the command, so the
@@ -135,7 +140,7 @@ export function secretForms(secrets: readonly string[]): readonly string[] {
     const encoded = encodeURIComponent(secret)
     forms.add(encoded)
     forms.add(encoded.replaceAll('%20', '+'))
-    forms.add(encoded.replace(/%[0-9A-F]{2}/g, (escape) => escape.toLowerCase()))
+    forms.add(encoded.replace(/%[0-9A-F]{2}/g, (hex) => hex.toLowerCase()))
     const json = JSON.stringify(secret).slice(1, -1)
     forms.add(json)
     forms.add(json.replaceAll('/', '\\/'))
@@ -163,13 +168,14 @@ const formsCache = new WeakMap<readonly string[], readonly string[]>()
  */
 export function sanitizeText(text: string, secrets: readonly string[], maxLength: number): string {
   const clean = withoutControls(text)
+  const runs = runEnds(clean)
   const spans: Span[] = [
     ...knownSecretSpans(clean, secretForms(secrets)),
     ...urlCredentialSpans(clean),
-    ...groupSpans(clean, KEY_VALUE, quotedInside),
+    ...valueSpans(clean, KEY_START, runs, (match) => SECRET_KEY_NAME.test(match[1] ?? '')),
     ...groupSpans(clean, CREDENTIAL_HEADER),
     ...groupSpans(clean, AUTH_SCHEME),
-    ...groupSpans(clean, DIGEST_RESPONSE, quotedInside),
+    ...valueSpans(clean, DIGEST_RESPONSE, runs),
     ...groupSpans(clean, REDIS_AUTH),
   ]
   const out = masked(clean, spans)
@@ -217,24 +223,30 @@ function urlCredentialSpans(text: string): Span[] {
   return spans
 }
 
-/**
- * The span of each match's first participating capture group. `adjust` may narrow it (to the
- * inside of quotes) or widen it past the match (see {@link quotedInside}); it gets the index just
- * after the match.
- */
-function groupSpans(
-  text: string,
-  pattern: RegExp,
-  adjust?: (value: string, text: string, after: number) => Span,
-): Span[] {
+/** The span of each match's first participating capture group. */
+function groupSpans(text: string, pattern: RegExp): Span[] {
   const spans: Span[] = []
   for (const match of text.matchAll(pattern)) {
     const value = match.slice(1).find((group) => group !== undefined)
     if (value === undefined || value === '') continue
-    const after = match.index + match[0].length
-    const start = after - value.length
-    const [from, to] = adjust === undefined ? [0, value.length] : adjust(value, text, after)
-    if (to > from) spans.push([start + from, start + to])
+    const end = match.index + match[0].length
+    spans.push([end - value.length, end])
+  }
+  return spans
+}
+
+/** The span of the value that starts right after each match that `keep` accepts. */
+function valueSpans(
+  text: string,
+  pattern: RegExp,
+  runs: (from: number) => number,
+  keep: (match: RegExpExecArray) => boolean = () => true,
+): Span[] {
+  const spans: Span[] = []
+  for (const match of text.matchAll(pattern)) {
+    if (!keep(match)) continue
+    const [start, end] = valueSpan(text, match.index + match[0].length, runs)
+    if (end > start) spans.push([start, end])
   }
   return spans
 }
@@ -243,28 +255,48 @@ function groupSpans(
 const AFTER_QUOTED = /[\s,;}\]&]/
 
 /**
- * For a quoted value, the part between the quotes, so the output keeps its shape
- * (`"[REDACTED]"`). When the "closing" quote is followed by more of the same word
- * (`password=''x%40y`), the quotes did not delimit the value: the span runs on to the next
- * whitespace, like an unquoted value.
+ * The value that starts at `start`. Unquoted: up to the next whitespace. Quoted (`"…"` or `'…'`,
+ * with backslash escapes, as JSON writes it): the part between the quotes, so the output keeps its
+ * shape (`"[REDACTED]"`); an unterminated one runs to the line end. When the "closing" quote is
+ * followed by more of the same word (`password=''x%40y`), the quotes did not delimit the value: the
+ * span runs on to the next whitespace, like an unquoted value.
+ *
+ * Why by hand rather than in the pattern: looking past a closing quote to the end of the word
+ * costs the rest of the word for every match, which adds up to quadratic work on long, repetitive
+ * text. Here that look is one lookup in {@link runEnds}, and the scan for a closing quote stops at
+ * the first unescaped quote of its kind, so the total work stays linear.
  */
-function quotedInside(value: string, text: string, after: number): Span {
-  const quote = value[0]
-  if (quote !== '"' && quote !== "'") return [0, value.length]
-  const closed = value.length >= 2 && value.endsWith(quote) && !isEscaped(value, value.length - 1)
-  if (!closed) return [1, value.length]
-  const next = text[after]
-  if (next === undefined || AFTER_QUOTED.test(next)) return [1, value.length - 1]
-  let end = after
-  while (end < text.length && !/\s/.test(text[end] ?? ' ')) end += 1
-  return [1, value.length + (end - after)]
+function valueSpan(text: string, start: number, runs: (from: number) => number): Span {
+  const quote = text[start]
+  if (quote !== '"' && quote !== "'") return [start, runs(start)]
+  let at = start + 1
+  while (at < text.length) {
+    const char = text[at]
+    if (char === '\n') return [start + 1, at]
+    if (char === quote) break
+    at += char === '\\' && text[at + 1] !== '\n' ? 2 : 1
+  }
+  if (at >= text.length) return [start + 1, text.length]
+  const next = text[at + 1]
+  if (next === undefined || AFTER_QUOTED.test(next)) return [start + 1, at]
+  return [start + 1, runs(at + 1)]
 }
 
-/** `true` when the character at `index` follows an odd number of backslashes. */
-function isEscaped(value: string, index: number): boolean {
-  let slashes = 0
-  for (let at = index - 1; at >= 0 && value[at] === '\\'; at -= 1) slashes += 1
-  return slashes % 2 === 1
+/**
+ * Where the run of non-whitespace at each position ends: a table built at most once per text (and
+ * only when a value needs it), so every lookup is constant time.
+ */
+function runEnds(text: string): (from: number) => number {
+  let table: Int32Array | undefined
+  return (from) => {
+    if (table === undefined) {
+      table = new Int32Array(text.length + 1)
+      table[text.length] = text.length
+      for (let at = text.length - 1; at >= 0; at -= 1)
+        table[at] = /\s/.test(text[at] ?? ' ') ? at : (table[at + 1] ?? text.length)
+    }
+    return table[Math.min(from, text.length)] ?? text.length
+  }
 }
 
 /** Replace the union of the spans (overlapping or touching spans merge) with `REDACTED`. */

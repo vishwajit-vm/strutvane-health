@@ -1,4 +1,11 @@
-# NEXT: `@strutvane/health` (branch `v2/health`)
+# NEXT: `@strutvane/health` (branch `fix/hardening-2026-11-20`)
+
+## Branch `fix/hardening-2026-11-20` (2026-11-21)
+
+- **Endpoint:** the credential is checked first; a valid token or an allowed policy is always served. Only failures are counted, per client bucket (`src/http/ip-bucket.ts`, the same buckets as the framework's `throttle`, which the published framework does not export; `test/http/ip-bucket.test.ts` pins it to the framework's examples). Property test: any number of failures from one bucket, `unknown` included, never blocks a valid credential.
+- **Output masking (`src/sanitize.ts`):** encoded forms of known secrets (percent, JSON, base64, base64url); URL credentials to the last `@`; more key names; whole quoted values; header lines; Redis `AUTH`; Digest `response`. Values are measured by hand so the work stays linear. Property test `test/sanitize-carriers.test.ts`: unknown secrets from the full printable alphabet in every carrier leave no 6-character piece.
+- Changeset (patch) added. Gate results: see the end of this file.
+- **Next:** the coordinator re-runs the gate 3×, then merges into `main` with the release.
 
 Last updated: 2026-11-19. Built against `@strutvane/framework` 0.2.0-next.1, which is on npm.
 
@@ -26,7 +33,7 @@ Last updated: 2026-11-19. Built against `@strutvane/framework` 0.2.0-next.1, whi
   - mail goes through a port (`HealthMailerToken`).
 - **Endpoint `GET /health.json`:**
   - access by token (constant-time compare) or by policy (`authorizeUsing`); `404` when neither is configured;
-  - a failed-attempt lockout per IP (`429`);
+  - failures counted per client bucket (`429` for further failures; a valid credential always passes);
   - `no-store`, and `503` when a check failed;
   - single-flight runs with a short reuse window;
   - `/up` is untouched.
