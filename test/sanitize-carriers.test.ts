@@ -254,7 +254,7 @@ describe('sanitizeText: shapes and edges', () => {
   })
 
   it('takes URL credentials to the last @ before the host; URLs without one are left alone', () => {
-    expect(sanitizeText('connect postgres://app:p@ss/w rd@db/app failed', [], 200)).toBe(
+    expect(sanitizeText('connect postgres://app:p@ss/w rd@db/app failed', [], 200)).toBe( // trufflehog:ignore
       `connect postgres://${REDACTED}@db/app failed`,
     )
     expect(sanitizeText('see https://example.com/a@ and more', [], 200)).toBe(
